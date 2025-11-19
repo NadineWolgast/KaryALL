@@ -1,0 +1,16 @@
+# KaryALL Classifier - Python Dependencies
+
+# Core scientific computing
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Machine learning
+scikit-learn>=1.0.0
+xgboost>=1.5.0
+
+# Handling imbalanced datasets
+imbalanced-learn>=0.9.0
+
+# Visualization
+matplotlib>=3.4.0
+seaborn>=0.11.0
