@@ -1,4 +1,4 @@
-# KaryALL: B-ALL Subtype Classifier
+# KaryALL: B-ALL Ensemble Classifier for Virtual Karyotypes
 
 This repository contains the training code for the KaryALL classifier, a machine learning model for classifying B-cell acute lymphoblastic leukemia (B-ALL) aneuploid  subtypes based on genomic features.
 
