@@ -354,12 +354,7 @@ The classifier is evaluated using:
   - Scaler fitted only on training data, test data transformed separately
 - **Ensemble Method**: Soft voting across three classifiers (KNN, Random Forest, XGBoost)
 - **Class Imbalance**: SMOTE upsampling applied within each LOOCV fold
-- **Hyperparameter Optimization**: Pre-optimized parameters validated via nested CV
-  - Validation performed in separate script (`KaryALL_nested_cv_validation.py`)
-  - Outer loop: LOOCV for evaluation (395 iterations)
-  - Inner loop: 5-fold stratified CV for hyperparameter search
-  - Prevents data leakage during hyperparameter tuning
-  - Validation confirmed identical performance with pre-optimized parameters
+  
 
 ### Feature Selection
 iAMP21-specific genomic positions were identified through feature importance analysis and represent chromosomal regions with high discriminative power for iAMP21 classification.
