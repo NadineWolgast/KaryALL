@@ -33,7 +33,6 @@ The classifier distinguishes between the following B-ALL subtypes:
 - **`KaryALL_nested_cv_validation.py`**: Hyperparameter validation script
   - Validates pre-optimized hyperparameters using nested cross-validation
   - Outer loop: LOOCV (395 iterations), Inner loop: 5-fold Stratified CV
-  - Demonstrates methodological rigor and addresses reviewer comments
   - Runtime: ~2-8 hours
 
 - **`extract_iAMP21_features.py`**: Feature extraction for iAMP21-specific genomic positions
@@ -201,7 +200,7 @@ for i, (label, prob) in enumerate(zip(predicted_labels, probabilities)):
 
 ## Data Preparation
 
-The training data for KaryALL is derived from RNA-seq data processed through RNASeqCNV(https://www.nature.com/articles/s41375-022-01547-8) . This section describes how to prepare your data for training.
+The training data for KaryALL is derived from RNA-seq data processed through RNASeqCNV(https://www.nature.com/articles/s41375-022-01547-8). This section describes how to prepare your data for training.
 
 ### Pipeline Overview
 
@@ -376,10 +375,6 @@ If you use this classifier in your research, please cite:
 ```
 https://doi.org/10.1101/2025.09.25.673987
 ```
-
-## License
-
-[Add your license information here]
 
 ## Contact
 
