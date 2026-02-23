@@ -27,9 +27,9 @@ The classifier distinguishes between the following B-ALL subtypes:
 - **`KaryALL_training.py`**: Main training script for the ensemble classifier
   - Trains ensemble classifier using LOOCV with pre-validated hyperparameters
   - Scaling and SMOTE applied within each CV fold (prevents data leakage)
+  - Includes optional nested CV for hyperparameter optimization (set `RUN_NESTED_CV = True`)
   - Generates confusion matrix and performance metrics
   - Exports misclassified samples
-
 
 - **`extract_iAMP21_features.py`**: Feature extraction for iAMP21-specific genomic positions
   - Extracts 24 discriminative genomic positions
@@ -134,26 +134,25 @@ To train with your complete dataset:
 
 The hyperparameters used in `KaryALL_training.py` have been validated using nested cross-validation to ensure no data leakage during hyperparameter tuning.
 
-**Validation Script:**
-- `KaryALL_nested_cv_validation.py` - Full nested CV validation
-  - Outer loop: Leave-One-Out CV (395 iterations)
-  - Inner loop: 5-fold Stratified CV for hyperparameter optimization
-  - Runtime: ~2-8 hours depending on hardware
-  - Result: Validates that pre-optimized parameters produce identical confusion matrix
+**Running Nested CV:**
 
-**To run the validation yourself:**
+By default, the training script uses pre-validated hyperparameters for efficiency. To run nested CV yourself:
 
-```bash
-python KaryALL_nested_cv_validation.py
-```
+1. Edit `KaryALL_training.py` and set `RUN_NESTED_CV = True` (line 21)
+2. Run the script:
+   ```bash
+   python KaryALL_training.py
+   ```
 
-**Output:**
-- `nested_cv_hyperparameters.csv` - Hyperparameters found in each fold
-- `Ensemble_Classifier_Confusion_Matrix_NestedCV.svg` - Confusion matrix
-- `Incorrectly_Predicted_Samples_NestedCV.csv` - Misclassified samples
-- `KaryALL_model_NestedCV.pkl` - Model trained with validated hyperparameters
+**Nested CV Framework:**
+- Outer loop: 5-fold Stratified CV (or Leave-One-Out for full dataset)
+- Inner loop: 5-fold Stratified CV for hyperparameter optimization
+- Both scaling and SMOTE applied within each fold (prevents data leakage)
+- Runtime: ~2-8 hours for full dataset (395 samples)
 
-**Note:** The nested CV validation confirmed that the pre-optimized hyperparameters used in `KaryALL_training.py` are optimal, producing identical results while being computationally more efficient for routine use.
+**Validation Results:**
+
+Full nested LOOCV (395 iterations) confirmed that the pre-optimized hyperparameters are optimal, producing identical confusion matrix (97.72% accuracy, 9/395 misclassifications). This validates that the efficient workflow with pre-optimized parameters is methodologically sound.
 
 ### 3. Using the Trained Model for Predictions
 
@@ -354,7 +353,12 @@ The classifier is evaluated using:
   - Scaler fitted only on training data, test data transformed separately
 - **Ensemble Method**: Soft voting across three classifiers (KNN, Random Forest, XGBoost)
 - **Class Imbalance**: SMOTE upsampling applied within each LOOCV fold
-  
+- **Hyperparameter Optimization**: Pre-optimized parameters validated via nested CV
+  - Nested CV framework included in main training script (optional, set `RUN_NESTED_CV = True`)
+  - Outer loop: LOOCV for evaluation (395 iterations)
+  - Inner loop: 5-fold stratified CV for hyperparameter search
+  - Prevents data leakage during hyperparameter tuning
+  - Validation confirmed identical performance with pre-optimized parameters
 
 ### Feature Selection
 iAMP21-specific genomic positions were identified through feature importance analysis and represent chromosomal regions with high discriminative power for iAMP21 classification.

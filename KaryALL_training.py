@@ -18,6 +18,7 @@ import seaborn as sns
 # Load data
 # Switch between full dataset and example dataset
 USE_EXAMPLE_DATA = True  # Set to False for full training
+RUN_NESTED_CV = False  # Set to True to run nested CV (requires larger dataset, min 50+ samples)
 OUTPUT_DIR = '../KaryALL_Optimization_Results/'  # Output directory for results
 
 if USE_EXAMPLE_DATA:
@@ -71,190 +72,212 @@ def get_k_neighbors(y_train_smote):
 
 
 # ============================================================================
-# HYPERPARAMETER OPTIMIZATION WITH NESTED CV (Optional - currently disabled)
+# HYPERPARAMETER OPTIMIZATION WITH NESTED CV
 # ============================================================================
-# NOTE: Hyperparameter optimization is currently DISABLED to save time
-#
 # This section implements NESTED CROSS-VALIDATION to avoid data leakage:
-#   - Outer loop: Subset of data for validation (e.g., 50 samples for faster testing)
+#   - Outer loop: 5-fold Stratified CV (or subset for faster testing)
 #   - Inner loop: 5-fold Stratified CV for hyperparameter search
 #   - Scaling and SMOTE applied correctly within each fold
 #
-# For full nested CV validation with LOOCV, see KaryALL_training_nested_cv.py
-# (takes ~2 hours for 395 samples)
-#
-# The pre-optimized parameters below were validated using full nested LOOCV.
-#
-# Uncomment the section below to run hyperparameter optimization with nested CV
-'''
-print("Starting Nested Cross-Validation for hyperparameter optimization...")
-print("Note: This uses a subset of data for demonstration. For full LOOCV nested CV,")
-print("      use the separate KaryALL_training_nested_cv.py script.")
+# The pre-optimized parameters were validated using full nested LOOCV
+# (395 iterations), confirming identical performance.
+# ============================================================================
 
-from sklearn.model_selection import StratifiedKFold, train_test_split
+# Check if dataset is large enough for nested CV
+if RUN_NESTED_CV and len(X) < 50:
+    print("\n" + "="*80)
+    print("WARNING: Nested CV requires a larger dataset (min 50+ samples).")
+    print(f"Current dataset has only {len(X)} samples.")
+    print("Falling back to pre-optimized hyperparameters.")
+    print("="*80 + "\n")
+    RUN_NESTED_CV = False
 
-# Hyperparameter grids
-knn_param_grid = {
-    'n_neighbors': [3, 5, 7, 9],
-    'weights': ['uniform', 'distance'],
-    'metric': ['euclidean', 'manhattan', 'minkowski']
-}
+if RUN_NESTED_CV:
+    print("\n" + "="*80)
+    print("NESTED CROSS-VALIDATION FOR HYPERPARAMETER OPTIMIZATION")
+    print("="*80)
+    print("Note: This uses a subset of data for demonstration.")
+    print("      Full nested LOOCV validation took ~2 hours and confirmed")
+    print("      that pre-optimized parameters are optimal.")
+    print("="*80 + "\n")
 
-rf_param_grid = {
-    'n_estimators': [100, 150, 200],
-    'max_depth': [50, 75, 95, None],
-    'max_features': ['sqrt', 'log2'],
-    'min_samples_split': [2, 4, 6],
-    'min_samples_leaf': [1, 3, 5],
-    'bootstrap': [True, False]
-}
+    from sklearn.model_selection import StratifiedKFold, train_test_split
 
-xgb_param_grid = {
-    'n_estimators': [75, 105, 150],
-    'max_depth': [6, 9, 12],
-    'learning_rate': [0.01, 0.03, 0.05, 0.1],
-    'subsample': [0.6, 0.7, 0.8, 0.9],
-    'colsample_bytree': [0.3, 0.4, 0.5, 0.6]
-}
+    # Hyperparameter grids
+    knn_param_grid = {
+        'n_neighbors': [3, 5, 7, 9],
+        'weights': ['uniform', 'distance'],
+        'metric': ['euclidean', 'manhattan', 'minkowski']
+    }
 
-# Use a subset for demonstration (remove stratify for full dataset)
-X_tune, _, y_tune, _ = train_test_split(X, y_encoded, train_size=50,
-                                         stratify=y_encoded, random_state=42)
+    rf_param_grid = {
+        'n_estimators': [100, 150, 200],
+        'max_depth': [50, 75, 95, None],
+        'max_features': ['sqrt', 'log2'],
+        'min_samples_split': [2, 4, 6],
+        'min_samples_leaf': [1, 3, 5],
+        'bootstrap': [True, False]
+    }
 
-# Outer CV loop (demonstration with small subset)
-outer_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-# Inner CV loop for hyperparameter search
-inner_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    xgb_param_grid = {
+        'n_estimators': [75, 105, 150],
+        'max_depth': [6, 9, 12],
+        'learning_rate': [0.01, 0.03, 0.05, 0.1],
+        'subsample': [0.6, 0.7, 0.8, 0.9],
+        'colsample_bytree': [0.3, 0.4, 0.5, 0.6]
+    }
 
-all_best_params = {'knn': [], 'rf': [], 'xgb': []}
+    # Use a subset for demonstration
+    # For example data, use all samples; for full data, use 50 samples
+    tune_size = min(50, len(X))
+    if tune_size < len(X):
+        X_tune, _, y_tune, _ = train_test_split(X, y_encoded, train_size=tune_size,
+                                                 stratify=y_encoded, random_state=42)
+    else:
+        X_tune, y_tune = X, y_encoded
 
-print(f"\nRunning nested CV on {len(X_tune)} samples...")
+    # Outer CV loop (demonstration with small subset)
+    # Adjust n_splits based on dataset size (min 2 samples per fold)
+    n_outer_splits = min(5, len(X_tune) // 2)
+    n_inner_splits = min(5, len(X_tune) // 2)
+    outer_cv = StratifiedKFold(n_splits=n_outer_splits, shuffle=True, random_state=42)
+    # Inner CV loop for hyperparameter search
+    inner_cv = StratifiedKFold(n_splits=n_inner_splits, shuffle=True, random_state=42)
 
-for fold, (train_idx, val_idx) in enumerate(outer_cv.split(X_tune, y_tune)):
-    print(f"\nOuter fold {fold + 1}/5")
+    all_best_params = {'knn': [], 'rf': [], 'xgb': []}
 
-    # Split data (unscaled)
-    X_train_outer = X_tune.iloc[train_idx]
-    y_train_outer = y_tune[train_idx]
+    print(f"\nRunning nested CV on {len(X_tune)} samples...")
 
-    # Scale training data
-    fold_scaler = StandardScaler()
-    X_train_scaled = fold_scaler.fit_transform(X_train_outer)
+    for fold, (train_idx, val_idx) in enumerate(outer_cv.split(X_tune, y_tune)):
+        print(f"\nOuter fold {fold + 1}/5")
 
-    # Apply SMOTE
-    if len(labels_to_upsample_encoded) > 0:
-        present_labels = [label for label in labels_to_upsample_encoded if label in y_train_outer]
-        if len(present_labels) > 0:
-            k_neighbors = get_k_neighbors(y_train_outer)
-            knn_estimator = NearestNeighbors(n_neighbors=k_neighbors, n_jobs=-1)
-            try:
-                smote = SMOTE(
-                    sampling_strategy={label: upsample_count for label in present_labels},
-                    k_neighbors=knn_estimator,
-                    random_state=42
-                )
-                X_train_smote, y_train_smote = smote.fit_resample(X_train_scaled, y_train_outer)
-            except ValueError:
+        # Split data (unscaled)
+        X_train_outer = X_tune.iloc[train_idx]
+        y_train_outer = y_tune[train_idx]
+
+        # Scale training data
+        fold_scaler = StandardScaler()
+        X_train_scaled = fold_scaler.fit_transform(X_train_outer)
+
+        # Apply SMOTE
+        if len(labels_to_upsample_encoded) > 0:
+            present_labels = [label for label in labels_to_upsample_encoded if label in y_train_outer]
+            if len(present_labels) > 0:
+                k_neighbors = get_k_neighbors(y_train_outer)
+                knn_estimator = NearestNeighbors(n_neighbors=k_neighbors, n_jobs=-1)
+                try:
+                    smote = SMOTE(
+                        sampling_strategy={label: upsample_count for label in present_labels},
+                        k_neighbors=knn_estimator,
+                        random_state=42
+                    )
+                    X_train_smote, y_train_smote = smote.fit_resample(X_train_scaled, y_train_outer)
+                except ValueError:
+                    X_train_smote, y_train_smote = X_train_scaled, y_train_outer
+            else:
                 X_train_smote, y_train_smote = X_train_scaled, y_train_outer
         else:
             X_train_smote, y_train_smote = X_train_scaled, y_train_outer
-    else:
-        X_train_smote, y_train_smote = X_train_scaled, y_train_outer
 
-    # Inner CV: Hyperparameter optimization
-    print("  Optimizing KNN...")
-    knn_search = RandomizedSearchCV(
-        KNeighborsClassifier(n_jobs=-1),
-        knn_param_grid,
-        n_iter=10,
-        cv=inner_cv,
-        scoring='accuracy',
-        n_jobs=-1,
-        random_state=42,
-        verbose=0
-    )
-    knn_search.fit(X_train_smote, y_train_smote)
-    all_best_params['knn'].append(knn_search.best_params_)
+        # Inner CV: Hyperparameter optimization
+        print("  Optimizing KNN...")
+        knn_search = RandomizedSearchCV(
+            KNeighborsClassifier(n_jobs=-1),
+            knn_param_grid,
+            n_iter=10,
+            cv=inner_cv,
+            scoring='accuracy',
+            n_jobs=-1,
+            random_state=42,
+            verbose=0
+        )
+        knn_search.fit(X_train_smote, y_train_smote)
+        all_best_params['knn'].append(knn_search.best_params_)
 
-    print("  Optimizing Random Forest...")
-    rf_search = RandomizedSearchCV(
-        RandomForestClassifier(random_state=42, n_jobs=-1),
-        rf_param_grid,
-        n_iter=15,
-        cv=inner_cv,
-        scoring='accuracy',
-        n_jobs=-1,
-        random_state=42,
-        verbose=0
-    )
-    rf_search.fit(X_train_smote, y_train_smote)
-    all_best_params['rf'].append(rf_search.best_params_)
+        print("  Optimizing Random Forest...")
+        rf_search = RandomizedSearchCV(
+            RandomForestClassifier(random_state=42, n_jobs=-1),
+            rf_param_grid,
+            n_iter=15,
+            cv=inner_cv,
+            scoring='accuracy',
+            n_jobs=-1,
+            random_state=42,
+            verbose=0
+        )
+        rf_search.fit(X_train_smote, y_train_smote)
+        all_best_params['rf'].append(rf_search.best_params_)
 
-    print("  Optimizing XGBoost...")
-    xgb_search = RandomizedSearchCV(
-        XGBClassifier(random_state=42, n_jobs=-1),
-        xgb_param_grid,
-        n_iter=15,
-        cv=inner_cv,
-        scoring='accuracy',
-        n_jobs=-1,
-        random_state=42,
-        verbose=0
-    )
-    xgb_search.fit(X_train_smote, y_train_smote)
-    all_best_params['xgb'].append(xgb_search.best_params_)
+        print("  Optimizing XGBoost...")
+        xgb_search = RandomizedSearchCV(
+            XGBClassifier(random_state=42, n_jobs=-1),
+            xgb_param_grid,
+            n_iter=15,
+            cv=inner_cv,
+            scoring='accuracy',
+            n_jobs=-1,
+            random_state=42,
+            verbose=0
+        )
+        xgb_search.fit(X_train_smote, y_train_smote)
+        all_best_params['xgb'].append(xgb_search.best_params_)
 
-# Get most common hyperparameters
-def get_most_common_params(param_list):
-    param_strings = [str(sorted(p.items())) for p in param_list]
-    from collections import Counter
-    counter = Counter(param_strings)
-    most_common_str = counter.most_common(1)[0][0]
-    for p in param_list:
-        if str(sorted(p.items())) == most_common_str:
-            return p
-    return param_list[0]
+    # Get most common hyperparameters
+    def get_most_common_params(param_list):
+        param_strings = [str(sorted(p.items())) for p in param_list]
+        from collections import Counter
+        counter = Counter(param_strings)
+        most_common_str = counter.most_common(1)[0][0]
+        for p in param_list:
+            if str(sorted(p.items())) == most_common_str:
+                return p
+        return param_list[0]
 
-best_knn_params = get_most_common_params(all_best_params['knn'])
-best_rf_params = get_most_common_params(all_best_params['rf'])
-best_xgb_params = get_most_common_params(all_best_params['xgb'])
+    best_knn_params = get_most_common_params(all_best_params['knn'])
+    best_rf_params = get_most_common_params(all_best_params['rf'])
+    best_xgb_params = get_most_common_params(all_best_params['xgb'])
 
-print("\n" + "="*80)
-print("BEST HYPERPARAMETERS FOUND:")
-print("="*80)
-print(f"\nKNN: {best_knn_params}")
-print(f"\nRandom Forest: {best_rf_params}")
-print(f"\nXGBoost: {best_xgb_params}")
-print("\n" + "="*80)
-'''
+    print("\n" + "="*80)
+    print("BEST HYPERPARAMETERS FOUND:")
+    print("="*80)
+    print(f"\nKNN: {best_knn_params}")
+    print(f"\nRandom Forest: {best_rf_params}")
+    print(f"\nXGBoost: {best_xgb_params}")
+    print("\n" + "="*80)
 
-# ============================================================================
-# USE PRE-OPTIMIZED HYPERPARAMETERS
-# ============================================================================
-print("Using pre-optimized hyperparameters...")
+else:
+    # =========================================================================
+    # USE PRE-OPTIMIZED HYPERPARAMETERS
+    # =========================================================================
+    print("\n" + "="*80)
+    print("USING PRE-OPTIMIZED HYPERPARAMETERS")
+    print("="*80)
+    print("These parameters were validated using full nested LOOCV (395 iterations).")
+    print("Set RUN_NESTED_CV = True to run nested CV hyperparameter optimization.")
+    print("="*80 + "\n")
 
-best_knn_params = {
-    'metric': 'manhattan',
-    'n_neighbors': 3,
-    'weights': 'distance'
-}
+    best_knn_params = {
+        'metric': 'manhattan',
+        'n_neighbors': 3,
+        'weights': 'distance'
+    }
 
-best_rf_params = {
-    'bootstrap': False,
-    'max_depth': 95,
-    'max_features': 'sqrt',
-    'min_samples_leaf': 5,
-    'min_samples_split': 6,
-    'n_estimators': 150
-}
+    best_rf_params = {
+        'bootstrap': False,
+        'max_depth': 95,
+        'max_features': 'sqrt',
+        'min_samples_leaf': 5,
+        'min_samples_split': 6,
+        'n_estimators': 150
+    }
 
-best_xgb_params = {
-    'colsample_bytree': 0.3538836655943906,
-    'learning_rate': 0.03495151419409696,
-    'max_depth': 9,
-    'n_estimators': 105,
-    'subsample': 0.6453037482886064
-}
+    best_xgb_params = {
+        'colsample_bytree': 0.3538836655943906,
+        'learning_rate': 0.03495151419409696,
+        'max_depth': 9,
+        'n_estimators': 105,
+        'subsample': 0.6453037482886064
+    }
 
 print("\n" + "="*80)
 print("HYPERPARAMETERS BEING USED:")
