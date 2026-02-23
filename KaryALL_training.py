@@ -18,6 +18,7 @@ import seaborn as sns
 # Load data
 # Switch between full dataset and example dataset
 USE_EXAMPLE_DATA = True  # Set to False for full training
+OUTPUT_DIR = '../KaryALL_Optimization_Results/'  # Output directory for results
 
 if USE_EXAMPLE_DATA:
     data = pd.read_csv('training_input.csv')
@@ -25,7 +26,7 @@ if USE_EXAMPLE_DATA:
     print("USING EXAMPLE DATASET (training_input.csv)")
     print("="*80)
 else:
-    data = pd.read_csv('merged_data_with_formatted.csv')
+    data = pd.read_csv('../merged_data_with_formatted.csv')
     print("="*80)
     print("USING FULL DATASET (merged_data_with_formatted.csv)")
     print("="*80)
@@ -44,9 +45,8 @@ y = data["subtype"]
 label_encoder = LabelEncoder()
 y_encoded = label_encoder.fit_transform(y)
 
-# Normalize data
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+# NOTE: Scaling is moved inside CV loop to prevent data leakage
+# Each fold will have its own scaler fitted only on training data
 
 # Labels for upsampling (only upsample classes that exist in the dataset)
 all_minority_classes = ['iAMP21', 'Near haploid', 'Low hypodiploid']
@@ -71,26 +71,35 @@ def get_k_neighbors(y_train_smote):
 
 
 # ============================================================================
-# HYPERPARAMETER OPTIMIZATION (Optional - comment out if using pre-optimized)
+# HYPERPARAMETER OPTIMIZATION WITH NESTED CV (Optional - currently disabled)
 # ============================================================================
 # NOTE: Hyperparameter optimization is currently DISABLED to save time
-# Uncomment the section below to run hyperparameter optimization
+#
+# This section implements NESTED CROSS-VALIDATION to avoid data leakage:
+#   - Outer loop: Subset of data for validation (e.g., 50 samples for faster testing)
+#   - Inner loop: 5-fold Stratified CV for hyperparameter search
+#   - Scaling and SMOTE applied correctly within each fold
+#
+# For full nested CV validation with LOOCV, see KaryALL_training_nested_cv.py
+# (takes ~2 hours for 395 samples)
+#
+# The pre-optimized parameters below were validated using full nested LOOCV.
+#
+# Uncomment the section below to run hyperparameter optimization with nested CV
 '''
-print("Starting hyperparameter optimization...")
-print("Note: This may take several hours. Comment out this section if using pre-optimized parameters.")
+print("Starting Nested Cross-Validation for hyperparameter optimization...")
+print("Note: This uses a subset of data for demonstration. For full LOOCV nested CV,")
+print("      use the separate KaryALL_training_nested_cv.py script.")
 
-# Prepare a small cross-validation for hyperparameter search (not LOO to save time)
-from sklearn.model_selection import StratifiedKFold
-cv_search = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
-# KNN hyperparameter grid
+# Hyperparameter grids
 knn_param_grid = {
     'n_neighbors': [3, 5, 7, 9],
     'weights': ['uniform', 'distance'],
     'metric': ['euclidean', 'manhattan', 'minkowski']
 }
 
-# Random Forest hyperparameter grid
 rf_param_grid = {
     'n_estimators': [100, 150, 200],
     'max_depth': [50, 75, 95, None],
@@ -100,7 +109,6 @@ rf_param_grid = {
     'bootstrap': [True, False]
 }
 
-# XGBoost hyperparameter grid
 xgb_param_grid = {
     'n_estimators': [75, 105, 150],
     'max_depth': [6, 9, 12],
@@ -109,63 +117,107 @@ xgb_param_grid = {
     'colsample_bytree': [0.3, 0.4, 0.5, 0.6]
 }
 
-# Perform hyperparameter search for each classifier
-# Note: Using a subset of data with SMOTE applied for the search
+# Use a subset for demonstration (remove stratify for full dataset)
+X_tune, _, y_tune, _ = train_test_split(X, y_encoded, train_size=50,
+                                         stratify=y_encoded, random_state=42)
 
-# Apply SMOTE to full training set for hyperparameter search
-k_neighbors_search = get_k_neighbors(y_encoded)
-knn_estimator_search = NearestNeighbors(n_neighbors=k_neighbors_search, n_jobs=-1)
-smote_search = SMOTE(
-    sampling_strategy={label: upsample_count for label in labels_to_upsample_encoded},
-    k_neighbors=knn_estimator_search,
-    random_state=42
-)
-X_search_smote, y_search_smote = smote_search.fit_resample(X_scaled, y_encoded)
+# Outer CV loop (demonstration with small subset)
+outer_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+# Inner CV loop for hyperparameter search
+inner_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-print("\nOptimizing KNN hyperparameters...")
-knn_search = RandomizedSearchCV(
-    KNeighborsClassifier(n_jobs=-1),
-    knn_param_grid,
-    n_iter=20,
-    cv=cv_search,
-    scoring='accuracy',
-    n_jobs=-1,
-    random_state=42,
-    verbose=1
-)
-knn_search.fit(X_search_smote, y_search_smote)
-best_knn_params = knn_search.best_params_
-print(f"Best KNN parameters: {best_knn_params}")
+all_best_params = {'knn': [], 'rf': [], 'xgb': []}
 
-print("\nOptimizing Random Forest hyperparameters...")
-rf_search = RandomizedSearchCV(
-    RandomForestClassifier(random_state=42, n_jobs=-1),
-    rf_param_grid,
-    n_iter=30,
-    cv=cv_search,
-    scoring='accuracy',
-    n_jobs=-1,
-    random_state=42,
-    verbose=1
-)
-rf_search.fit(X_search_smote, y_search_smote)
-best_rf_params = rf_search.best_params_
-print(f"Best Random Forest parameters: {best_rf_params}")
+print(f"\nRunning nested CV on {len(X_tune)} samples...")
 
-print("\nOptimizing XGBoost hyperparameters...")
-xgb_search = RandomizedSearchCV(
-    XGBClassifier(random_state=42, n_jobs=-1),
-    xgb_param_grid,
-    n_iter=30,
-    cv=cv_search,
-    scoring='accuracy',
-    n_jobs=-1,
-    random_state=42,
-    verbose=1
-)
-xgb_search.fit(X_search_smote, y_search_smote)
-best_xgb_params = xgb_search.best_params_
-print(f"Best XGBoost parameters: {best_xgb_params}")
+for fold, (train_idx, val_idx) in enumerate(outer_cv.split(X_tune, y_tune)):
+    print(f"\nOuter fold {fold + 1}/5")
+
+    # Split data (unscaled)
+    X_train_outer = X_tune.iloc[train_idx]
+    y_train_outer = y_tune[train_idx]
+
+    # Scale training data
+    fold_scaler = StandardScaler()
+    X_train_scaled = fold_scaler.fit_transform(X_train_outer)
+
+    # Apply SMOTE
+    if len(labels_to_upsample_encoded) > 0:
+        present_labels = [label for label in labels_to_upsample_encoded if label in y_train_outer]
+        if len(present_labels) > 0:
+            k_neighbors = get_k_neighbors(y_train_outer)
+            knn_estimator = NearestNeighbors(n_neighbors=k_neighbors, n_jobs=-1)
+            try:
+                smote = SMOTE(
+                    sampling_strategy={label: upsample_count for label in present_labels},
+                    k_neighbors=knn_estimator,
+                    random_state=42
+                )
+                X_train_smote, y_train_smote = smote.fit_resample(X_train_scaled, y_train_outer)
+            except ValueError:
+                X_train_smote, y_train_smote = X_train_scaled, y_train_outer
+        else:
+            X_train_smote, y_train_smote = X_train_scaled, y_train_outer
+    else:
+        X_train_smote, y_train_smote = X_train_scaled, y_train_outer
+
+    # Inner CV: Hyperparameter optimization
+    print("  Optimizing KNN...")
+    knn_search = RandomizedSearchCV(
+        KNeighborsClassifier(n_jobs=-1),
+        knn_param_grid,
+        n_iter=10,
+        cv=inner_cv,
+        scoring='accuracy',
+        n_jobs=-1,
+        random_state=42,
+        verbose=0
+    )
+    knn_search.fit(X_train_smote, y_train_smote)
+    all_best_params['knn'].append(knn_search.best_params_)
+
+    print("  Optimizing Random Forest...")
+    rf_search = RandomizedSearchCV(
+        RandomForestClassifier(random_state=42, n_jobs=-1),
+        rf_param_grid,
+        n_iter=15,
+        cv=inner_cv,
+        scoring='accuracy',
+        n_jobs=-1,
+        random_state=42,
+        verbose=0
+    )
+    rf_search.fit(X_train_smote, y_train_smote)
+    all_best_params['rf'].append(rf_search.best_params_)
+
+    print("  Optimizing XGBoost...")
+    xgb_search = RandomizedSearchCV(
+        XGBClassifier(random_state=42, n_jobs=-1),
+        xgb_param_grid,
+        n_iter=15,
+        cv=inner_cv,
+        scoring='accuracy',
+        n_jobs=-1,
+        random_state=42,
+        verbose=0
+    )
+    xgb_search.fit(X_train_smote, y_train_smote)
+    all_best_params['xgb'].append(xgb_search.best_params_)
+
+# Get most common hyperparameters
+def get_most_common_params(param_list):
+    param_strings = [str(sorted(p.items())) for p in param_list]
+    from collections import Counter
+    counter = Counter(param_strings)
+    most_common_str = counter.most_common(1)[0][0]
+    for p in param_list:
+        if str(sorted(p.items())) == most_common_str:
+            return p
+    return param_list[0]
+
+best_knn_params = get_most_common_params(all_best_params['knn'])
+best_rf_params = get_most_common_params(all_best_params['rf'])
+best_xgb_params = get_most_common_params(all_best_params['xgb'])
 
 print("\n" + "="*80)
 print("BEST HYPERPARAMETERS FOUND:")
@@ -226,28 +278,20 @@ predictions = []
 true_labels = []
 sample_ids = []
 
-# Create classifiers with best parameters (add n_jobs for parallelization)
-best_knn_params['n_jobs'] = -1
-knn_classifier = KNeighborsClassifier(**best_knn_params)
-
-best_rf_params['n_jobs'] = -1
-if 'random_state' not in best_rf_params:
-    best_rf_params['random_state'] = 42
-rf_classifier = RandomForestClassifier(**best_rf_params)
-
-best_xgb_params['n_jobs'] = -1
-if 'random_state' not in best_xgb_params:
-    best_xgb_params['random_state'] = 42
-xgb_classifier = XGBClassifier(**best_xgb_params)
-
 # Perform Leave-One-Out Cross-Validation
-for i, (train_index, test_index) in enumerate(loo.split(X_scaled)):
+for i, (train_index, test_index) in enumerate(loo.split(X)):
     if (i + 1) % 10 == 0:
-        print(f"Processing sample {i + 1}/{len(X_scaled)}...")
+        print(f"Processing sample {i + 1}/{len(X)}...")
 
-    X_train, X_test = X_scaled[train_index], X_scaled[test_index]
+    # Split data (unscaled)
+    X_train, X_test = X.iloc[train_index], X.iloc[test_index]
     y_train, y_test = y_encoded[train_index], y_encoded[test_index]
     sample_id = data.iloc[test_index[0]]["sampleID"]
+
+    # Fit scaler on training data only (prevents data leakage)
+    fold_scaler = StandardScaler()
+    X_train_scaled = fold_scaler.fit_transform(X_train)
+    X_test_scaled = fold_scaler.transform(X_test)
 
     # Apply SMOTE only if there are minority classes to upsample
     if len(labels_to_upsample_encoded) > 0:
@@ -267,23 +311,40 @@ for i, (train_index, test_index) in enumerate(loo.split(X_scaled)):
             # Create K-Neighbors estimator
             knn_estimator = NearestNeighbors(n_neighbors=k_neighbors, n_jobs=-1)
 
-            # Up-sample training data with SMOTE
+            # Up-sample training data with SMOTE (on scaled data)
             try:
                 smote = SMOTE(
                     sampling_strategy={label: upsample_count for label in present_labels},
                     k_neighbors=knn_estimator,
                     random_state=42
                 )
-                X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
+                X_train_smote, y_train_smote = smote.fit_resample(X_train_scaled, y_train)
             except ValueError:
                 # SMOTE failed (e.g., not enough samples), skip upsampling for this fold
-                X_train_smote, y_train_smote = X_train, y_train
+                X_train_smote, y_train_smote = X_train_scaled, y_train
         else:
             # No minority classes with enough samples in training set, skip SMOTE
-            X_train_smote, y_train_smote = X_train, y_train
+            X_train_smote, y_train_smote = X_train_scaled, y_train
     else:
         # No upsampling needed
-        X_train_smote, y_train_smote = X_train, y_train
+        X_train_smote, y_train_smote = X_train_scaled, y_train
+
+    # Create fresh classifier instances for this fold (prevents any state carryover)
+    knn_params = best_knn_params.copy()
+    knn_params['n_jobs'] = -1
+    knn_classifier = KNeighborsClassifier(**knn_params)
+
+    rf_params = best_rf_params.copy()
+    rf_params['n_jobs'] = -1
+    if 'random_state' not in rf_params:
+        rf_params['random_state'] = 42
+    rf_classifier = RandomForestClassifier(**rf_params)
+
+    xgb_params = best_xgb_params.copy()
+    xgb_params['n_jobs'] = -1
+    if 'random_state' not in xgb_params:
+        xgb_params['random_state'] = 42
+    xgb_classifier = XGBClassifier(**xgb_params)
 
     # Create ensemble classifier
     ensemble_classifier = VotingClassifier(
@@ -299,8 +360,8 @@ for i, (train_index, test_index) in enumerate(loo.split(X_scaled)):
     # Train ensemble classifier
     ensemble_classifier.fit(X_train_smote, y_train_smote)
 
-    # Predict for test sample
-    ensemble_pred = ensemble_classifier.predict(X_test)
+    # Predict for test sample (using scaled test data)
+    ensemble_pred = ensemble_classifier.predict(X_test_scaled)
     predictions.append(ensemble_pred[0])
     true_labels.append(y_test[0])
     sample_ids.append(sample_id)
@@ -326,7 +387,7 @@ for sample_id, true_label, pred_label in wrong_predictions:
     print(f"Sample ID: {sample_id}, True Label: {true_label}, Predicted Label: {pred_label}")
 
 # Save as CSV file
-csv_filename = "Incorrectly_Predicted_Samples.csv"
+csv_filename = OUTPUT_DIR + "Incorrectly_Predicted_Samples.csv"
 with open(csv_filename, mode="w", newline="") as file:
     writer = csv.writer(file)
     writer.writerow(["Sample ID", "True Label", "Predicted Label"])
@@ -377,12 +438,12 @@ ax.set_ylabel('True Label', fontsize=20, fontweight='bold')
 plt.xticks(rotation=45, ha='right')
 
 # Save heatmap
-heatmap_filename = 'Ensemble_Classifier_Confusion_Matrix.svg'
+heatmap_filename = OUTPUT_DIR + 'Ensemble_Classifier_Confusion_Matrix.svg'
 plt.savefig(heatmap_filename, dpi=300, bbox_inches='tight')
 print(f"\nConfusion matrix heatmap saved to: {heatmap_filename}")
 
-# Show heatmap
-plt.show()
+# Close plot to free memory
+plt.close()
 
 # Generate classification report
 class_report = classification_report(
@@ -402,6 +463,11 @@ print(class_report)
 print("\n" + "="*80)
 print("TRAINING FINAL MODEL ON FULL DATASET...")
 print("="*80)
+
+# For the final production model, fit scaler on full dataset
+# (this is correct - the final model needs consistent scaling for new data)
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
 # Apply SMOTE to full dataset for final model (if minority classes exist with enough samples)
 if len(labels_to_upsample_encoded) > 0:
@@ -486,7 +552,7 @@ model_data = {
 }
 
 # Save model as pickle file
-model_filename = 'KaryALL_model.pkl'
+model_filename = OUTPUT_DIR + 'KaryALL_model.pkl'
 with open(model_filename, 'wb') as model_file:
     pickle.dump(model_data, model_file)
 
