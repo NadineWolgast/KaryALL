@@ -30,10 +30,6 @@ The classifier distinguishes between the following B-ALL subtypes:
   - Generates confusion matrix and performance metrics
   - Exports misclassified samples
 
-- **`KaryALL_nested_cv_validation.py`**: Hyperparameter validation script
-  - Validates pre-optimized hyperparameters using nested cross-validation
-  - Outer loop: LOOCV (395 iterations), Inner loop: 5-fold Stratified CV
-  - Runtime: ~2-8 hours
 
 - **`extract_iAMP21_features.py`**: Feature extraction for iAMP21-specific genomic positions
   - Extracts 24 discriminative genomic positions
